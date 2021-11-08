@@ -32,6 +32,3 @@ uuid = {version = "0.8", features  = ["serde", "v4"]}
 wascap = "0.6.0"
 wasmbus-rpc = "0.5.3"
 wasmcloud-interface-lattice-control = "0.1.0"
-
-[build-dependencies]
-weld-codegen = "0.2.3"
