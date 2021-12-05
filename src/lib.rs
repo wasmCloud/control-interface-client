@@ -10,7 +10,7 @@ use nats::asynk::Connection;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
 use sub_stream::SubscriptionStream;
-pub use wasmbus_rpc::{core::LinkDefinition, RpcClient};
+pub use wasmbus_rpc::core::LinkDefinition;
 
 type Result<T> = ::std::result::Result<T, Box<dyn ::std::error::Error + Send + Sync>>;
 
@@ -144,7 +144,7 @@ impl Client {
             count,
             actor_ref: actor_ref.to_string(),
             host_id: host_id.to_string(),
-            annotations,
+            annotations,            
         })?;
         match self
             .nc
