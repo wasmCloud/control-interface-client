@@ -42,7 +42,7 @@ impl Client {
     /// Queries the lattice for all responsive hosts, waiting for the full period specified by _timeout_.
     pub async fn get_hosts(&self) -> Result<Vec<Host>> {
         get_hosts_(&self.nc, &self.nsprefix, self.auction_timeout).await
-    }    
+    }
 
     /// Retrieves the contents of a running host
     pub async fn get_host_inventory(&self, host_id: &str) -> Result<HostInventory> {
@@ -568,7 +568,7 @@ pub fn json_deserialize<'de, T: Deserialize<'de>>(
 // "selfless" function to obtain a list of hosts
 async fn get_hosts_(
     client: &anats::Connection,
-    nsprefix: &Option<String>,    
+    nsprefix: &Option<String>,
     timeout: Duration,
 ) -> Result<Vec<Host>> {
     let subject = broker::queries::hosts(nsprefix);
