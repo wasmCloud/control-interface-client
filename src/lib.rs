@@ -6,35 +6,43 @@ use cloudevents::event::Event;
 use crossbeam_channel::{unbounded, Receiver};
 use futures::executor::block_on;
 use log::{error, trace};
-use nats::asynk::Connection;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
-use sub_stream::SubscriptionStream;
-pub use wasmbus_rpc::core::LinkDefinition;
+use sub_stream::collect_timeout;
+use wasmbus_rpc::anats;
+pub use wasmbus_rpc_06::core::LinkDefinition;
 
 type Result<T> = ::std::result::Result<T, Box<dyn ::std::error::Error + Send + Sync>>;
 
 /// Lattice control interface client
+#[derive(Clone)]
 pub struct Client {
-    nc: nats::asynk::Connection,
+    nc: anats::Connection,
     nsprefix: Option<String>,
     timeout: Duration,
+    auction_timeout: Duration,
 }
 
 impl Client {
     /// Creates a new lattice control interface client
-    pub fn new(nc: Connection, nsprefix: Option<String>, timeout: Duration) -> Self {
+    pub fn new(
+        nc: anats::Connection,
+        nsprefix: Option<String>,
+        timeout: Duration,
+        auction_timeout: Duration,
+    ) -> Self {
         Client {
             nc,
             nsprefix,
             timeout,
+            auction_timeout,
         }
     }
 
     /// Queries the lattice for all responsive hosts, waiting for the full period specified by _timeout_.
-    pub async fn get_hosts(&self, timeout: Duration) -> Result<Vec<Host>> {
-        get_hosts_(&self.nc, &self.nsprefix, timeout).await
-    }
+    pub async fn get_hosts(&self) -> Result<Vec<Host>> {
+        get_hosts_(&self.nc, &self.nsprefix, self.auction_timeout).await
+    }    
 
     /// Retrieves the contents of a running host
     pub async fn get_host_inventory(&self, host_id: &str) -> Result<HostInventory> {
@@ -79,7 +87,6 @@ impl Client {
         &self,
         actor_ref: &str,
         constraints: HashMap<String, String>,
-        timeout: Duration,
     ) -> Result<Vec<ActorAuctionAck>> {
         let subject = broker::actor_auction_subject(&self.nsprefix);
         let bytes = json_serialize(ActorAuctionRequest {
@@ -88,10 +95,7 @@ impl Client {
         })?;
         trace!("actor_auction: subscribing to {}", &subject);
         let sub = self.nc.request_multi(&subject, bytes).await?;
-        let actors = SubscriptionStream::new(sub)
-            .collect(timeout, "actor auction")
-            .await;
-        Ok(actors)
+        Ok(collect_timeout(sub, self.auction_timeout, "actor").await)
     }
 
     /// Performs a provider auction within the lattice, publishing a set of constraints and the metadata for the provider
@@ -103,7 +107,6 @@ impl Client {
         provider_ref: &str,
         link_name: &str,
         constraints: HashMap<String, String>,
-        timeout: Duration,
     ) -> Result<Vec<ProviderAuctionAck>> {
         let subject = broker::provider_auction_subject(&self.nsprefix);
         let bytes = json_serialize(ProviderAuctionRequest {
@@ -113,10 +116,7 @@ impl Client {
         })?;
         trace!("provider_auction: subscribing to {}", &subject);
         let sub = self.nc.request_multi(&subject, bytes).await?;
-        let providers = SubscriptionStream::new(sub)
-            .collect(timeout, "provider auction")
-            .await;
-        Ok(providers)
+        Ok(collect_timeout(sub, self.auction_timeout, "provider").await)
     }
 
     /// Sends a request to the given host to start a given actor by its OCI reference. This returns an acknowledgement
@@ -150,6 +150,42 @@ impl Client {
                 Ok(ack)
             }
             Err(e) => Err(format!("Did not receive start actor acknowledgement: {}", e).into()),
+        }
+    }
+
+    /// Sends a request to the given host to scale a given actor. This returns an acknowledgement of _receipt_ of the
+    /// command, not a confirmation that the actor scaled. An acknowledgement will either indicate some form of
+    /// validation failure, or, if no failure occurs, the receipt of the command. To avoid blocking consumers,
+    /// wasmCloud hosts will acknowledge the scale actor command prior to fetching the actor's OCI bytes. If a client
+    /// needs deterministic results as to whether the actor completed its startup process, the client will have to
+    /// monitor the appropriate event in the control event stream
+    pub async fn scale_actor(
+        &self,
+        host_id: &str,
+        actor_ref: &str,
+        actor_id: &str,
+        count: u16,
+        annotations: Option<HashMap<String, String>>,
+    ) -> Result<CtlOperationAck> {
+        let subject = broker::commands::scale_actor(&self.nsprefix, host_id);
+        trace!("scale_actor:request {}", &subject);
+        let bytes = json_serialize(ScaleActorCommand {
+            count,
+            actor_ref: actor_ref.to_string(),
+            host_id: host_id.to_string(),
+            actor_id: actor_id.to_string(),
+            annotations,
+        })?;
+        match self
+            .nc
+            .request_timeout(&subject, &bytes, self.timeout)
+            .await
+        {
+            Ok(msg) => {
+                let ack: CtlOperationAck = json_deserialize(&msg.data)?;
+                Ok(ack)
+            }
+            Err(e) => Err(format!("Did not receive scale actor acknowledgement: {}", e).into()),
         }
     }
 
@@ -299,9 +335,10 @@ impl Client {
         } else {
             // If a host isn't supplied, ack early and go find one
             let client = self.nc.clone();
+            let auction_timeout = self.auction_timeout;
             trace!("start_provider:deferred (no-host) request");
             tokio::spawn(async move {
-                let hosts = get_hosts_(&client, &nsprefix, Duration::from_secs(1)).await;
+                let hosts = get_hosts_(&client, &nsprefix, auction_timeout).await;
                 match hosts {
                     Ok(hs) => {
                         if hs.len() > 0 {
@@ -435,9 +472,11 @@ impl Client {
     /// # Example
     /// ```rust
     /// use wasmcloud_control_interface::Client;
+    /// use wasmbus_rpc::anats;
     /// async {
-    ///   let nc = nats::asynk::connect("0.0.0.0:4222").await.unwrap();
-    ///   let client = Client::new(nc, None, std::time::Duration::from_millis(1000));
+    ///   let nc = anats::connect("127.0.0.1:4222").await.unwrap();
+    ///   let client = Client::new(nc, None, std::time::Duration::from_millis(1000),
+    ///                        std::time::Duration::from_millis(1000));
     ///   let receiver = client.events_receiver().await.unwrap();
     ///   std::thread::spawn(move || loop {
     ///     if let Ok(evt) = receiver.recv() {
@@ -459,9 +498,11 @@ impl Client {
     /// # Example
     /// ```rust
     /// use wasmcloud_control_interface::Client;
+    /// use wasmbus_rpc::anats;
     /// async {
-    ///   let nc = nats::asynk::connect("0.0.0.0:4222").await.unwrap();
-    ///   let client = Client::new(nc, None, std::time::Duration::from_millis(1000));
+    ///   let nc = anats::connect("0.0.0.0:4222").await.unwrap();
+    ///   let client = Client::new(nc, None, std::time::Duration::from_millis(1000),
+    ///                   std::time::Duration::from_millis(1000));
     ///   let receiver = client.events_receiver().await.unwrap();
     ///   std::thread::spawn(move || {
     ///     if let Ok(evt) = receiver.recv() {
@@ -526,22 +567,19 @@ pub fn json_deserialize<'de, T: Deserialize<'de>>(
 
 // "selfless" function to obtain a list of hosts
 async fn get_hosts_(
-    client: &Connection,
-    nsprefix: &Option<String>,
+    client: &anats::Connection,
+    nsprefix: &Option<String>,    
     timeout: Duration,
 ) -> Result<Vec<Host>> {
     let subject = broker::queries::hosts(nsprefix);
     let sub = client.request_multi(&subject, vec![]).await?;
     trace!("get_hosts: subscribing to {}", &subject);
-    let hosts = SubscriptionStream::new(sub)
-        .collect(timeout, "get hosts")
-        .await;
-    Ok(hosts)
+    Ok(collect_timeout(sub, timeout, "hosts").await)
 }
 
 // "selfless" helper function that submits a start provider request to a host
 async fn start_provider_(
-    client: &Connection,
+    client: &anats::Connection,
     nsprefix: &Option<String>,
     timeout: Duration,
     host_id: &str,
@@ -571,14 +609,20 @@ async fn start_provider_(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wasmbus_rpc::anats;
 
     /// Note: This test is a means of manually watching the event stream as CloudEvents are received
     /// It does not assert functionality, and so we've marked it as ignore to ensure it's not run by default
     #[tokio::test]
     #[ignore]
     async fn test_events_receiver() {
-        let nc = nats::asynk::connect("0.0.0.0:4222").await.unwrap();
-        let client = Client::new(nc, None, std::time::Duration::from_millis(1000));
+        let nc = anats::connect("127.0.0.1:4222").await.unwrap();
+        let client = Client::new(
+            nc,
+            None,
+            std::time::Duration::from_millis(1000),
+            std::time::Duration::from_millis(1000),
+        );
         let receiver = client.events_receiver().await.unwrap();
         std::thread::spawn(move || loop {
             if let Ok(evt) = receiver.recv() {
