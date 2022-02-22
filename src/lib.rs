@@ -194,9 +194,9 @@ impl Client {
     /// map with the new information. It is highly recommended you use TLS connections
     /// with NATS and isolate the control interface credentials when using this
     /// function in production as the data contains secrets
-    pub async fn push_registries(&self, registries: RegistryCredentialMap) -> Result<()> {
+    pub async fn put_registries(&self, registries: RegistryCredentialMap) -> Result<()> {
         let subject = broker::publish_registries(&self.nsprefix);
-        trace!("push_registries {}", &subject);
+        trace!("put_registries {}", &subject);
         let bytes = json_serialize(&registries)?;
         if let Err(e) = self
             .nc
