@@ -10,7 +10,7 @@ use tokio::sync::mpsc::Receiver;
 use tracing::{error, trace};
 use wasmbus_rpc::core::LinkDefinition;
 
-type Result<T> = ::std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = ::std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Lattice control interface client
 #[derive(Clone)]
@@ -534,7 +534,9 @@ impl Client {
 /// The standard function for serializing codec structs into a format that can be
 /// used for message exchange between actor and host. Use of any other function to
 /// serialize could result in breaking incompatibilities.
-pub fn json_serialize<T>(item: T) -> ::std::result::Result<Vec<u8>, Box<dyn std::error::Error>>
+pub fn json_serialize<T>(
+    item: T,
+) -> ::std::result::Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
 where
     T: Serialize,
 {
@@ -546,7 +548,7 @@ where
 /// deserialize could result in breaking incompatibilities.
 pub fn json_deserialize<'de, T: Deserialize<'de>>(
     buf: &'de [u8],
-) -> ::std::result::Result<T, Box<dyn std::error::Error>> {
+) -> ::std::result::Result<T, Box<dyn std::error::Error + Send + Sync>> {
     serde_json::from_slice(buf).map_err(|e| {
         {
             std::io::Error::new(
