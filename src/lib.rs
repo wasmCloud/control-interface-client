@@ -1,4 +1,4 @@
-pub mod broker;
+mod broker;
 mod sub_stream;
 mod types;
 
