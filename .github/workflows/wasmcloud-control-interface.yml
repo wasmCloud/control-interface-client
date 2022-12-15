@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - uses: wasmcloud/common-actions/run-nats@main
+    - uses: wasmcloud/common-actions/run-nats@autodidaddict-patch-1
       with:
         options: '-js'
 
