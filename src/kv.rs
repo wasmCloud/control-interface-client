@@ -122,7 +122,6 @@ mod test {
     const LINK_2: &str = r#"{"actor_id":"MBW3UGAIONCX3RIDDUGDCQIRGBQQOWS643CVICQ5EZ7SWNQPZLZTSQKU","contract_id":"wasmcloud:keyvalue","id":"ff140106-dd0d-44ee-8241-a2158a528b1d","link_name":"default","provider_id":"VAZVC4RX54J2NVCMCW7BPCAHGGG5XZXDBXFUMDUXGESTMQEJLC3YVZWB","values":{"URL":"redis://127.0.0.1:6379"}}"#;
 
     #[tokio::test]
-    #[ignore]
     async fn test_get_returns_none_for_nonexistent_store() {
         let client = async_nats::connect("127.0.0.1:4222").await.unwrap();
 
@@ -131,7 +130,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_get_claims_returns_response() {
         let client = async_nats::connect("127.0.0.1:4222").await.unwrap();
         let js = async_nats::jetstream::new(client.clone());
@@ -171,7 +169,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_get_links_returns_response() {
         let client = async_nats::connect("127.0.0.1:4222").await.unwrap();
         let js = async_nats::jetstream::new(client.clone());
@@ -204,7 +201,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_put_and_del_link() {
         let client = async_nats::connect("127.0.0.1:4222").await.unwrap();
         let js = async_nats::jetstream::new(client.clone());

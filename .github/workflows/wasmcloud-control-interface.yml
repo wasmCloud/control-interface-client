@@ -18,6 +18,9 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - uses: wasmcloud/common-actions/run-nats@main
+      with:
+        options: '-js'
+
     - name: Update rust
       uses: actions-rs/toolchain@v1
       with:
