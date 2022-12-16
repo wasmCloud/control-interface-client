@@ -105,7 +105,7 @@ pub(crate) fn ld_hash_raw(actor_id: &str, contract_id: &str, link_name: &str) ->
     cleanbytes.write_all(actor_id.as_bytes()).unwrap();
     cleanbytes.write_all(contract_id.as_bytes()).unwrap();
     cleanbytes.write_all(link_name.as_bytes()).unwrap();
-    
+
     let digest = digest(&SHA256, &cleanbytes);
     HEXUPPER.encode(digest.as_ref())
 }
