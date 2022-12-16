@@ -133,7 +133,7 @@ impl Client {
     /// Creates a new lattice control interface client. You should use [ClientBuilder::new] instead. This
     /// function will also not attempt to communicate with a key-value store containing the lattice metadata
     /// and will only ever use the deprecated methods of host/lattice interaction
-    #[deprecated(since = "0.22.4", note = "please use the client builder instead")]
+    #[deprecated(since = "0.23.0", note = "please use the client builder instead")]
     pub fn new(
         nc: async_nats::Client,
         ns_prefix: Option<String>,
@@ -154,7 +154,7 @@ impl Client {
     /// prefix. You should use [ClientBuilder::new] instead.  This
     /// function will also not attempt to communicate with a key-value store containing the lattice metadata
     /// and will only ever use the deprecated methods of host/lattice interaction
-    #[deprecated(since = "0.22.4", note = "please use the client builder instead")]
+    #[deprecated(since = "0.23.0", note = "please use the client builder instead")]
     pub fn new_with_topic_prefix(
         nc: async_nats::Client,
         topic_prefix: &str,

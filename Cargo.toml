@@ -1,6 +1,6 @@
 [package]
 name = "wasmcloud-control-interface"
-version = "0.22.4"
+version = "0.23.0"
 authors = ["wasmCloud Team"]
 edition = "2021"
 homepage = "https://wasmcloud.com"
