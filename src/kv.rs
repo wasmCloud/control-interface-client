@@ -96,14 +96,16 @@ pub(crate) fn ld_hash(ld: &LinkDefinition) -> String {
     ld_hash_raw(&ld.actor_id, &ld.contract_id, &ld.link_name)
 }
 
+// Performs a hash function against the link definition key fields. The corresponding
+// Elixir hash function can be found in https://github.com/wasmcloud/wasmcloud-otp/ in the
+// host_core/lib/linkdefs/manager.ex file, which uses Erlang's :crypto
 pub(crate) fn ld_hash_raw(actor_id: &str, contract_id: &str, link_name: &str) -> String {
     use std::io::Write;
     let mut cleanbytes: Vec<u8> = Vec::new();
     cleanbytes.write_all(actor_id.as_bytes()).unwrap();
     cleanbytes.write_all(contract_id.as_bytes()).unwrap();
     cleanbytes.write_all(link_name.as_bytes()).unwrap();
-
-    //let digest = sha256_digest(cleanbytes.as_slice()).unwrap();
+    
     let digest = digest(&SHA256, &cleanbytes);
     HEXUPPER.encode(digest.as_ref())
 }
