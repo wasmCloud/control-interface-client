@@ -713,11 +713,13 @@ impl Client {
     ///
     /// # Example
     /// ```rust
-    /// use wasmcloud_control_interface::Client;
+    /// use wasmcloud_control_interface::{Client, ClientBuilder};
     /// async {
     ///   let nc = async_nats::connect("0.0.0.0:4222").await.unwrap();
-    ///   let client = Client::new(nc, None, std::time::Duration::from_millis(1000),
-    ///                   std::time::Duration::from_millis(1000));
+    ///   let client = ClientBuilder::new(nc)
+    ///                 .rpc_timeout(std::time::Duration::from_millis(1000))
+    ///                 .auction_timeout(std::time::Duration::from_millis(1000))
+    ///                 .build().await.unwrap();    
     ///   let mut receiver = client.events_receiver().await.unwrap();
     ///   // read the docs for flume receiver. You can use it in either sync or async code
     ///   // The receiver can be cloned() as needed.

@@ -3,9 +3,16 @@ use std::collections::HashMap;
 use async_nats::{jetstream::kv::Store, Client};
 use wasmbus_rpc::core::LinkDefinition;
 
+use data_encoding::HEXUPPER;
+use ring::digest::{digest, SHA256};
+
 use crate::GetClaimsResponse;
 use crate::LinkDefinitionList;
 use crate::Result;
+
+const LINKDEF_PREFIX: &str = "LINKDEF_";
+const CLAIMS_PREFIX: &str = "CLAIMS_";
+const BUCKET_PREFIX: &str = "LATTICEDATA_";
 
 pub(crate) async fn get_kv_store(
     nc: Client,
@@ -17,7 +24,7 @@ pub(crate) async fn get_kv_store(
     } else {
         async_nats::jetstream::new(nc)
     };
-    let bucket = format!("LATTICEDATA_{}", lattice_prefix);
+    let bucket = format!("{}{}", BUCKET_PREFIX, lattice_prefix);
     jetstream.get_key_value(bucket).await.ok()
 }
 
@@ -25,7 +32,7 @@ pub(crate) async fn get_claims(store: &Store) -> Result<GetClaimsResponse> {
     let mut claims = Vec::new();
     let mut entries = store.keys().await?;
     while let Some(key) = entries.next() {
-        if key.starts_with("CLAIMS_") {
+        if key.starts_with(CLAIMS_PREFIX) {
             add_claim(&mut claims, store.get(key).await?).await?;
         }
     }
@@ -36,7 +43,7 @@ pub(crate) async fn get_links(store: &Store) -> Result<LinkDefinitionList> {
     let mut links = Vec::new();
     let mut entries = store.keys().await?;
     while let Some(key) = entries.next() {
-        if key.starts_with("LINKDEF_") {
+        if key.starts_with(LINKDEF_PREFIX) {
             add_linkdef(&mut links, store.get(key).await?).await?;
         }
     }
@@ -45,8 +52,8 @@ pub(crate) async fn get_links(store: &Store) -> Result<LinkDefinitionList> {
 }
 
 pub(crate) async fn put_link(store: &Store, ld: LinkDefinition) -> Result<()> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let key = format!("LINKDEF_{}", id);
+    let id = ld_hash(&ld);
+    let key = format!("{}{}", LINKDEF_PREFIX, id);
     store
         .put(key, serde_json::to_vec(&ld)?.into())
         .await
@@ -59,11 +66,12 @@ pub(crate) async fn delete_link(
     contract_id: &str,
     link_name: &str,
 ) -> Result<()> {
-    if let Some(key) = find_link_key(store, actor_id, contract_id, link_name).await? {
-        store.delete(key).await.map(|_| ())
-    } else {
-        Err("No such link".into())
-    }
+    let key = format!(
+        "{}{}",
+        LINKDEF_PREFIX,
+        ld_hash_raw(actor_id, contract_id, link_name)
+    );
+    store.delete(key).await.map(|_| ())
 }
 
 async fn add_linkdef(links: &mut Vec<LinkDefinition>, data: Option<Vec<u8>>) -> Result<()> {
@@ -75,29 +83,6 @@ async fn add_linkdef(links: &mut Vec<LinkDefinition>, data: Option<Vec<u8>>) -> 
     Ok(())
 }
 
-async fn find_link_key(
-    store: &Store,
-    actor_id: &str,
-    contract_id: &str,
-    link_name: &str,
-) -> Result<Option<String>> {
-    let mut entries = store.keys().await?;
-    while let Some(ref key) = entries.next() {
-        if key.starts_with("LINKDEF_") {
-            if let Some(raw) = store.get(key).await? {
-                let ld: LinkDefinition = serde_json::from_slice(&raw)?;
-                if ld.actor_id == actor_id
-                    && ld.contract_id == contract_id
-                    && ld.link_name == link_name
-                {
-                    return Ok(Some(key.to_string()));
-                }
-            }
-        }
-    }
-    Ok(None)
-}
-
 async fn add_claim(claims: &mut Vec<HashMap<String, String>>, data: Option<Vec<u8>>) -> Result<()> {
     if let Some(d) = data {
         let json: HashMap<String, String> = serde_json::from_slice(&d)?;
@@ -107,19 +92,50 @@ async fn add_claim(claims: &mut Vec<HashMap<String, String>>, data: Option<Vec<u
     Ok(())
 }
 
-// NOTE: these tests require nats to be running with JS enabled. To run these, explicitly run them as they
-// are difficult to run from within CI
+pub(crate) fn ld_hash(ld: &LinkDefinition) -> String {
+    ld_hash_raw(&ld.actor_id, &ld.contract_id, &ld.link_name)
+}
+
+pub(crate) fn ld_hash_raw(actor_id: &str, contract_id: &str, link_name: &str) -> String {
+    use std::io::Write;
+    let mut cleanbytes: Vec<u8> = Vec::new();
+    cleanbytes.write_all(actor_id.as_bytes()).unwrap();
+    cleanbytes.write_all(contract_id.as_bytes()).unwrap();
+    cleanbytes.write_all(link_name.as_bytes()).unwrap();
+
+    //let digest = sha256_digest(cleanbytes.as_slice()).unwrap();
+    let digest = digest(&SHA256, &cleanbytes);
+    HEXUPPER.encode(digest.as_ref())
+}
+
+// NOTE: these tests require nats to be running with JS enabled.
 #[cfg(test)]
 mod test {
     use wasmbus_rpc::core::LinkDefinition;
 
-    use crate::kv::{delete_link, get_claims, get_kv_store, get_links, put_link};
+    use crate::kv::{delete_link, get_claims, get_kv_store, get_links, ld_hash, put_link};
 
     const CLAIMS_1: &str = r#"{"call_alias":"","caps":"wasmcloud:httpserver","iss":"ABRIBHH54GM7QIEJBYYGZJUSDAMO34YM4SKWUQJGIILRB7JYGXEPWUVT","name":"kvcounter","rev":"1631624220","sub":"MBW3UGAIONCX3RIDDUGDCQIRGBQQOWS643CVICQ5EZ7SWNQPZLZTSQKU","tags":"","version":"0.3.0"}"#;
     const CLAIMS_2: &str = r#"{"call_alias":"","caps":"","iss":"ACOJJN6WUP4ODD75XEBKKTCCUJJCY5ZKQ56XVKYK4BEJWGVAOOQHZMCW","name":"HTTP Server","rev":"1644594344","sub":"VAG3QITQQ2ODAOWB5TTQSDJ53XK3SHBEIFNK4AYJ5RKAX2UNSCAPHA5M","tags":"","version":"0.14.10"}"#;
 
     const LINK_1: &str = r#"{"actor_id":"MBW3UGAIONCX3RIDDUGDCQIRGBQQOWS643CVICQ5EZ7SWNQPZLZTSQKU","contract_id":"wasmcloud:httpserver","id":"fb30deff-bbe7-4a28-a525-e53ebd4e8228","link_name":"default","provider_id":"VAG3QITQQ2ODAOWB5TTQSDJ53XK3SHBEIFNK4AYJ5RKAX2UNSCAPHA5M","values":{"PORT":"8082"}}"#;
     const LINK_2: &str = r#"{"actor_id":"MBW3UGAIONCX3RIDDUGDCQIRGBQQOWS643CVICQ5EZ7SWNQPZLZTSQKU","contract_id":"wasmcloud:keyvalue","id":"ff140106-dd0d-44ee-8241-a2158a528b1d","link_name":"default","provider_id":"VAZVC4RX54J2NVCMCW7BPCAHGGG5XZXDBXFUMDUXGESTMQEJLC3YVZWB","values":{"URL":"redis://127.0.0.1:6379"}}"#;
+
+    #[test]
+    fn test_hash_compatibility() {
+        let mut ld = LinkDefinition::default();
+        // generated by sha_binary = :crypto.hash_final(sha), sha_hex = sha_binary |> Base.encode16() |> String.upcase
+        const ELIXIR_HASH: &str =
+            "B40411AD09B70A2C83D59923584F66BA2C5A3C274DC4F19416DA49CCD6531F9C";
+
+        ld.actor_id = "Mbob".to_string();
+        ld.provider_id = "Valice".to_string();
+        ld.link_name = "default".to_string();
+        ld.contract_id = "wasmcloud:testy".to_string();
+
+        let h1 = ld_hash(&ld);
+        assert_eq!(h1, ELIXIR_HASH);
+    }
 
     #[tokio::test]
     async fn test_get_returns_none_for_nonexistent_store() {
