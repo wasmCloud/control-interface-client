@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> The control interface client has been moved to the [wasmCloud monorepo](https://github.com/wasmCloud/wasmCloud/tree/main/crates/control-interface), and this repository has been archived.
+
 ![Crates.io](https://img.shields.io/crates/v/wasmcloud-control-interface)
 [![Documentation](https://img.shields.io/badge/Docs-Documentation-blue)](https://wasmcloud.dev)
 [![Rustdocs](https://docs.rs/wasmcloud-control-interface/badge.svg)](https://docs.rs/wasmcloud-control-interface)
